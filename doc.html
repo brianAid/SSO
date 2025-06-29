@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="id" x-data="{ tab: 'react' }">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Panduan Integrasi SSO (React + Laravel)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script
+      defer
+      src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"
+    ></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+    />
+    <style>
+      .copy-btn {
+        cursor: pointer;
+      }
+      [x-cloak] {
+        display: none;
+      }
+    </style>
+  </head>
+  <body class="bg-gray-50 text-gray-800">
+    <div class="max-w-5xl mx-auto p-6 space-y-6">
+      <h1 class="text-3xl font-bold text-center">
+        📘 Panduan SSO: React Client + Laravel Resource Server
+      </h1>
+
+      <!-- Tabs -->
+      <div class="flex justify-center gap-4">
+        <button
+          @click="tab='react'"
+          :class="tab==='react' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'"
+          class="px-4 py-2 rounded border"
+        >
+          React Client
+        </button>
+        <button
+          @click="tab='laravel'"
+          :class="tab==='laravel' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'"
+          class="px-4 py-2 rounded border"
+        >
+          Laravel Resource Server
+        </button>
+      </div>
+
+      <!-- React Section -->
+      <div x-show="tab==='react'" x-cloak class="space-y-6">
+        <h2 class="text-2xl font-semibold text-blue-600">
+          <i class="fab fa-react mr-2"></i>React Client
+        </h2>
+
+        <p>1️⃣ Redirect ke login SSO Server:</p>
+        <pre
+          class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
+        ><code>const CLIENT_ID = "app1";
+const REDIRECT_URI = encodeURIComponent("http://localhost:3000/callback");
+const STATE = "secureRandomState";
+
+window.location.href = 
+  `http://localhost:3000/authorize?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&state=${STATE}`;
+</code></pre>
+
+        <p>2️⃣ Di halaman callback, tukar code dengan token dari SSO Server:</p>
+        <pre
+          class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
+        ><code>useEffect(() => {
+  const code = new URLSearchParams(window.location.search).get("code");
+  if (!code) return;
+
+  fetch("http://localhost:3000/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      code,
+      client_id: "app1",
+      client_secret: "secretapp1",
+      redirect_uri: "http://localhost:3000/callback",
+    }),
+  })
+    .then(res => res.json())
+    .then(data => {
+      localStorage.setItem("access_token", data.access_token);
+    });
+}, []);
+</code></pre>
+
+        <p>
+          3️⃣ Gunakan <code>access_token</code> tersebut untuk mengakses Laravel
+          Resource Server:
+        </p>
+        <pre
+          class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
+        ><code>const token = localStorage.getItem("access_token");
+
+fetch("http://localhost:8001/api/profile", {
+  headers: {
+    Authorization: `Bearer ${token}`
+  }
+})
+  .then(res => res.json())
+  .then(data => console.log(data));
+</code></pre>
+
+        <p>
+          🧠 Penting: Token ini adalah JWT yang ditandatangani oleh SSO Server,
+          dan akan diverifikasi oleh Laravel Resource Server.
+        </p>
+      </div>
+
+      <!-- Laravel Section -->
+      <div x-show="tab==='laravel'" x-cloak class="space-y-6">
+        <h2 class="text-2xl font-semibold text-green-600">
+          <i class="fas fa-server mr-2"></i>Laravel Resource Server
+        </h2>
+
+        <p>1️⃣ Install dependency untuk memverifikasi JWT:</p>
+        <pre
+          class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
+        ><code>composer require firebase/php-jwt</code></pre>
+
+        <p>2️⃣ Buat middleware <code>VerifyAccessToken.php</code>:</p>
+        <pre
+          class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
+        ><code>&lt;?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
+use Illuminate\Http\Request;
+
+class VerifyAccessToken
+{
+    public function handle(Request $request, Closure $next)
+    {
+        $auth = $request->header('Authorization');
+        if (!$auth || !str_starts_with($auth, 'Bearer ')) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+
+        $token = substr($auth, 7); // buang "Bearer "
+
+        try {
+            $jwks = json_decode(file_get_contents('http://localhost:3000/.well-known/jwks.json'), true);
+            $jwk = $jwks['keys'][0];
+            $publicKey = JWT::parseKeySet(['keys' => [$jwk]]);
+
+            $decoded = JWT::decode($token, $publicKey);
+            $request->merge(['user_id' => $decoded->user_id, 'username' => $decoded->username]);
+
+        } catch (\Throwable $e) {
+            return response()->json(['error' => 'Token tidak valid'], 401);
+        }
+
+        return $next($request);
+    }
+}
+</code></pre>
+
+        <p>3️⃣ Tambahkan middleware di <code>Kernel.php</code>:</p>
+        <pre
+          class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
+        ><code>'auth.sso' => \App\Http\Middleware\VerifyAccessToken::class,</code></pre>
+
+        <p>4️⃣ Gunakan route yang dilindungi oleh token:</p>
+        <pre
+          class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
+        ><code>Route::middleware('auth.sso')->get('/api/profile', function (Request $request) {
+    return response()->json([
+        'user_id' => $request->user_id,
+        'username' => $request->username,
+    ]);
+});
+</code></pre>
+
+        <p>
+          ✅ Sekarang setiap request dari React akan diverifikasi menggunakan
+          kunci publik dari SSO Server.
+        </p>
+      </div>
+
+      <div class="text-center text-sm text-gray-500 mt-10">
+        © 2025 Panduan SSO — React + Laravel
+      </div>
+    </div>
+  </body>
+</html>
