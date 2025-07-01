@@ -12,20 +12,48 @@ async function requireAdmin(req, res, next) {
   if (!token) return res.status(401).json({ error: "Not authenticated" });
 
   try {
+    // 1. Verifikasi dan decode token
     const decoded = verifyToken(token);
-    const userId = decoded.id;
 
-    const userRes = await db.query("SELECT role FROM users WHERE id = $1", [userId]);
-    const role = userRes.rows[0]?.role;
+    // 2. Ambil user_id dari token (pastikan sesuai struktur token Anda)
+    const userId = decoded.user_id; // Sesuai payload token Anda
 
-    if (role !== 'admin') {
-      return res.status(403).json({ error: "Akses ditolak: hanya admin yang diizinkan" });
+    // 3. Query database untuk mendapatkan role
+    const queryResult = await db.query(
+      `SELECT role FROM users WHERE id = $1`,
+      [userId]
+    );
+
+    // 4. Handle jika user tidak ditemukan
+    if (queryResult.rows.length === 0) {
+      return res.status(404).json({ error: "User tidak ditemukan di database" });
     }
 
-    req.user = { ...decoded, role };
+    // 5. Ambil nilai role
+    const userRole = queryResult.rows[0].role;
+    console.log(`Role dari database untuk user ${userId}:`, userRole); // Debugging
+
+    // 6. Validasi role
+    if (userRole.toLowerCase() !== 'admin') {
+      return res.status(403).json({
+        error: "Akses ditolak: hanya admin yang diizinkan",
+        your_role: userRole
+      });
+    }
+
+    // 7. Tambahkan data user ke request object
+    req.user = {
+      id: userId,
+      username: decoded.username,
+      role: userRole
+    };
+
     next();
   } catch (err) {
-    console.error("Auth error:", err);
+    console.error("Error saat verifikasi admin:", {
+      error: err,
+      decoded: verifyToken(token, { complete: true }) // Debugging
+    });
     return res.status(401).json({ error: "Token tidak valid" });
   }
 }
@@ -172,6 +200,60 @@ router.post("/users", upload.single('avatar'), async (req, res) => {
     });
   }
 });
+
+//edit user
+router.put("/users/:id", upload.single('avatar'), async (req, res) => {
+  const userId = parseInt(req.params.id);
+  const { username } = req.body;
+  const avatar = req.file ? `/uploads/${req.file.filename}` : null;
+
+  if (!username) {
+    return res.status(400).json({ error: "Username wajib diisi" });
+  }
+
+  try {
+    // Cek apakah user ada
+    const existing = await db.query(`SELECT * FROM users WHERE id = $1`, [userId]);
+    if (existing.rowCount === 0) {
+      return res.status(404).json({ error: "User tidak ditemukan" });
+    }
+
+    // Update data user
+    const updateQuery = avatar
+      ? `UPDATE users SET username = $1, avatar = $2 WHERE id = $3`
+      : `UPDATE users SET username = $1 WHERE id = $2`;
+
+    const values = avatar ? [username, avatar, userId] : [username, userId];
+
+    await db.query(updateQuery, values);
+
+    res.json({ success: true, message: "User berhasil diperbarui" });
+  } catch (err) {
+    console.error("Update user error:", err);
+    res.status(500).json({ error: "Gagal memperbarui user" });
+  }
+});
+//delete user
+router.delete("/users/:id", async (req, res) => {
+  const userId = parseInt(req.params.id);
+  if (isNaN(userId)) return res.status(400).json({ error: "ID tidak valid" });
+
+  try {
+    // Hapus user_clients dulu agar tidak ada constraint error
+    await db.query(`DELETE FROM user_clients WHERE user_id = $1`, [userId]);
+
+    const result = await db.query(`DELETE FROM users WHERE id = $1 RETURNING *`, [userId]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "User tidak ditemukan" });
+    }
+
+    res.json({ success: true, message: "User berhasil dihapus" });
+  } catch (err) {
+    console.error("Delete user error:", err);
+    res.status(500).json({ error: "Gagal menghapus user" });
+  }
+});
+
 
 // Import users from Excel
 router.post('/import-users', upload.single('excel_file'), async (req, res) => {
@@ -460,6 +542,75 @@ router.post("/clients", upload.single('logo'), async (req, res) => {
     });
   }
 });
+// update client
+router.patch("/clients/:id", upload.single("logo"), async (req, res) => {
+  const id = parseInt(req.params.id);
+  const { nama, domain, redirect_uri, active } = req.body;
+  const logo = req.file ? `/uploads/${req.file.filename}` : null;
+
+  if (isNaN(id)) return res.status(400).json({ error: "ID tidak valid" });
+
+  try {
+    const existing = await db.query(`SELECT * FROM clients WHERE id = $1`, [id]);
+    if (existing.rowCount === 0) {
+      if (req.file) {
+        const fs = await import('fs');
+        fs.unlinkSync(req.file.path); // delete uploaded logo
+      }
+      return res.status(404).json({ error: "Client tidak ditemukan" });
+    }
+
+    const client = existing.rows[0];
+    const newLogo = logo || client.logo;
+
+    await db.query(`
+      UPDATE clients SET 
+        nama = $1,
+        domain = $2,
+        redirect_uri = $3,
+        active = $4,
+        logo = $5
+      WHERE id = $6
+    `, [
+      nama || client.nama,
+      domain || client.domain,
+      redirect_uri || client.redirect_uri,
+      active !== undefined ? active : client.active,
+      newLogo,
+      id
+    ]);
+
+    res.json({ message: "Client berhasil diperbarui" });
+  } catch (err) {
+    console.error("Error update client:", err);
+    res.status(500).json({ error: "Gagal memperbarui client" });
+  }
+});
+//delete client
+router.delete("/clients/:id", async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: "ID tidak valid" });
+
+  try {
+    // Cek apakah client ada
+    const check = await db.query(`SELECT * FROM clients WHERE id = $1`, [id]);
+    if (check.rowCount === 0) {
+      return res.status(404).json({ error: "Client tidak ditemukan" });
+    }
+
+    // Hapus semua relasi user-client terkait (opsional tapi aman)
+    await db.query(`DELETE FROM user_clients WHERE client_id = $1`, [id]);
+
+    // Hapus client-nya
+    await db.query(`DELETE FROM clients WHERE id = $1`, [id]);
+
+    res.json({ message: "Client berhasil dihapus" });
+  } catch (err) {
+    console.error("Error hapus client:", err);
+    res.status(500).json({ error: "Gagal menghapus client" });
+  }
+});
+
 
 // Dashboard stats
 router.get("/stats", async (_, res) => {
