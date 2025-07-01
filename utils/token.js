@@ -22,13 +22,7 @@ export function generateRefreshToken(payload) {
   });
 }
 
-export function verifyAccessToken(token) {
-  return jwt.verify(token, publicKey, {
-    algorithms: ["RS256"]
-  });
-}
-
-export function verifyRefreshToken(token) {
+export function verifyToken(token) {
   return jwt.verify(token, publicKey, {
     algorithms: ["RS256"]
   });

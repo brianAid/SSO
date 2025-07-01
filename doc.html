@@ -2,6 +2,7 @@
 <html lang="id" x-data="{ tab: 'react' }">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Panduan Integrasi SSO (React + Laravel)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script
@@ -15,9 +16,21 @@
     <style>
       .copy-btn {
         cursor: pointer;
+        transition: all 0.2s;
+      }
+      .copy-btn:hover {
+        background-color: #e5e7eb;
       }
       [x-cloak] {
         display: none;
+      }
+      pre code {
+        display: block;
+        overflow-x: auto;
+        padding: 1em;
+      }
+      .info-box {
+        border-left-width: 4px;
       }
     </style>
   </head>
@@ -32,16 +45,16 @@
         <button
           @click="tab='react'"
           :class="tab==='react' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'"
-          class="px-4 py-2 rounded border"
+          class="px-4 py-2 rounded border transition-colors"
         >
-          React Client
+          <i class="fab fa-react mr-2"></i>React Client
         </button>
         <button
           @click="tab='laravel'"
-          :class="tab==='laravel' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'"
-          class="px-4 py-2 rounded border"
+          :class="tab==='laravel' ? 'bg-green-600 text-white' : 'bg-white text-gray-700'"
+          class="px-4 py-2 rounded border transition-colors"
         >
-          Laravel Resource Server
+          <i class="fas fa-server mr-2"></i>Laravel Resource Server
         </button>
       </div>
 
@@ -51,62 +64,218 @@
           <i class="fab fa-react mr-2"></i>React Client
         </h2>
 
-        <p>1️⃣ Redirect ke login SSO Server:</p>
-        <pre
-          class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
-        ><code>const CLIENT_ID = "app1";
-const REDIRECT_URI = encodeURIComponent("http://localhost:3000/callback");
-const STATE = "secureRandomState";
+        <div class="bg-blue-50 p-4 rounded-lg info-box border-l-blue-500">
+          <p class="font-semibold text-blue-800">📌 Alur Autentikasi:</p>
+          <ol class="list-decimal pl-5 space-y-1">
+            <li>Redirect pengguna ke SSO Server</li>
+            <li>Tangkap authorization code di callback URL</li>
+            <li>Tukar code dengan access token dan refresh token</li>
+            <li>Gunakan token untuk mengakses API Resource Server</li>
+            <li>Refresh token secara berkala</li>
+          </ol>
+        </div>
 
+        <p>1️⃣ <strong>Redirect ke login SSO Server</strong>:</p>
+        <div class="relative">
+          <button
+            onclick="copyToClipboard(this)"
+            class="absolute top-2 right-2 bg-gray-200 px-2 py-1 rounded copy-btn"
+          >
+            <i class="fas fa-copy mr-1"></i>Salin
+          </button>
+          <pre
+            class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
+          ><code>const CLIENT_ID = "app1";
+const REDIRECT_URI = encodeURIComponent("http://localhost:8000/callback");
+const STATE = crypto.randomUUID(); // Generate secure state
+
+// Redirect ke endpoint authorize SSO
 window.location.href = 
-  `http://localhost:3000/authorize?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&state=${STATE}`;
-</code></pre>
+  `http://localhost:3000/authorize?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&state=${STATE}`;</code></pre>
+        </div>
 
-        <p>2️⃣ Di halaman callback, tukar code dengan token dari SSO Server:</p>
-        <pre
-          class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
-        ><code>useEffect(() => {
-  const code = new URLSearchParams(window.location.search).get("code");
-  if (!code) return;
+        <div class="bg-blue-50 p-4 rounded-lg info-box border-l-blue-500">
+          <p class="font-semibold text-blue-800">💡 Parameter Penting:</p>
+          <ul class="list-disc pl-5 space-y-1">
+            <li><code>client_id</code>: Identifikasi aplikasi client</li>
+            <li><code>redirect_uri</code>: URL callback setelah login</li>
+            <li><code>state</code>: Parameter keamanan untuk mencegah CSRF</li>
+          </ul>
+        </div>
 
-  fetch("http://localhost:3000/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      code,
-      client_id: "app1",
-      client_secret: "secretapp1",
-      redirect_uri: "http://localhost:3000/callback",
-    }),
-  })
-    .then(res => res.json())
-    .then(data => {
-      localStorage.setItem("access_token", data.access_token);
+        <p>2️⃣ <strong>Tangkap code dan tukar dengan token</strong>:</p>
+        <div class="relative">
+          <button
+            onclick="copyToClipboard(this)"
+            class="absolute top-2 right-2 bg-gray-200 px-2 py-1 rounded copy-btn"
+          >
+            <i class="fas fa-copy mr-1"></i>Salin
+          </button>
+          <pre
+            class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
+          ><code>import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+function CallbackPage() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    
+    // Validasi state
+    if (state !== localStorage.getItem('oauth_state')) {
+      navigate('/error?message=invalid_state');
+      return;
+    }
+
+    if (!code) {
+      navigate('/error?message=no_code');
+      return;
+    }
+
+    // Tukar code dengan token
+    fetch("http://localhost:3000/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        code,
+        client_id: "app1",
+        client_secret: "secretapp1",
+        redirect_uri: "http://localhost:8000/callback",
+      }),
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          throw new Error(data.error);
+        }
+        
+        // Simpan token
+        localStorage.setItem("access_token", data.access_token);
+        localStorage.setItem("refresh_token", data.refresh_token);
+        navigate('/dashboard');
+      })
+      .catch(error => {
+        console.error('Token exchange failed:', error);
+        navigate('/error?message=auth_failed');
+      });
+  }, [navigate]);
+
+  return &lt;div>Loading...&lt;/div>;
+}</code></pre>
+        </div>
+
+        <p>3️⃣ <strong>Gunakan token untuk akses resource</strong>:</p>
+        <div class="relative">
+          <button
+            onclick="copyToClipboard(this)"
+            class="absolute top-2 right-2 bg-gray-200 px-2 py-1 rounded copy-btn"
+          >
+            <i class="fas fa-copy mr-1"></i>Salin
+          </button>
+          <pre
+            class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
+          ><code>async function fetchProtectedData() {
+  const token = localStorage.getItem("access_token");
+  
+  try {
+    const response = await fetch("http://localhost:8001/api/profile", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
     });
-}, []);
-</code></pre>
-
-        <p>
-          3️⃣ Gunakan <code>access_token</code> tersebut untuk mengakses Laravel
-          Resource Server:
-        </p>
-        <pre
-          class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
-        ><code>const token = localStorage.getItem("access_token");
-
-fetch("http://localhost:8001/api/profile", {
-  headers: {
-    Authorization: `Bearer ${token}`
+    
+    if (response.status === 401) {
+      // Token expired, coba refresh
+      await refreshToken();
+      return fetchProtectedData();
+    }
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch data');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('API request failed:', error);
+    throw error;
   }
-})
-  .then(res => res.json())
-  .then(data => console.log(data));
-</code></pre>
+}</code></pre>
+        </div>
 
-        <p>
-          🧠 Penting: Token ini adalah JWT yang ditandatangani oleh SSO Server,
-          dan akan diverifikasi oleh Laravel Resource Server.
-        </p>
+        <p>4️⃣ <strong>Implementasi refresh token</strong>:</p>
+        <div class="relative">
+          <button
+            onclick="copyToClipboard(this)"
+            class="absolute top-2 right-2 bg-gray-200 px-2 py-1 rounded copy-btn"
+          >
+            <i class="fas fa-copy mr-1"></i>Salin
+          </button>
+          <pre
+            class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
+          ><code>async function refreshToken() {
+  const refreshToken = localStorage.getItem("refresh_token");
+  if (!refreshToken) {
+    throw new Error('No refresh token available');
+  }
+
+  try {
+    const response = await fetch("http://localhost:3000/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        refresh_token: refreshToken,
+        client_id: "app1",
+        client_secret: "secretapp1"
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || 'Refresh failed');
+    }
+
+    localStorage.setItem("access_token", data.access_token);
+    localStorage.setItem("refresh_token", data.refresh_token);
+    return data.access_token;
+  } catch (error) {
+    console.error('Refresh token failed:', error);
+    // Force logout
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
+    window.location.href = '/login';
+    throw error;
+  }
+}
+
+// Setup interval untuk auto refresh
+useEffect(() => {
+  const interval = setInterval(async () => {
+    try {
+      await refreshToken();
+    } catch (error) {
+      clearInterval(interval);
+    }
+  }, 9 * 60 * 1000); // Refresh 1 menit sebelum expired (asumsi token expired 10 menit)
+
+  return () => clearInterval(interval);
+}, []);</code></pre>
+        </div>
+
+        <div class="bg-blue-100 p-4 rounded-lg info-box border-l-blue-600">
+          <p class="font-semibold text-blue-800">🔒 Best Practices:</p>
+          <ul class="list-disc pl-5 space-y-1">
+            <li>Gunakan <code>httpOnly</code> cookies untuk production</li>
+            <li>Implementasi CSRF protection dengan state parameter</li>
+            <li>
+              Refresh token sebelum expired (9 menit untuk token 10 menit)
+            </li>
+            <li>Handle error dengan baik (invalid token, network issues)</li>
+          </ul>
+        </div>
       </div>
 
       <!-- Laravel Section -->
@@ -115,76 +284,262 @@ fetch("http://localhost:8001/api/profile", {
           <i class="fas fa-server mr-2"></i>Laravel Resource Server
         </h2>
 
-        <p>1️⃣ Install dependency untuk memverifikasi JWT:</p>
-        <pre
-          class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
-        ><code>composer require firebase/php-jwt</code></pre>
+        <div class="bg-green-50 p-4 rounded-lg info-box border-l-green-500">
+          <p class="font-semibold text-green-800">🔐 Fungsi Resource Server:</p>
+          <ul class="list-disc pl-5 space-y-1">
+            <li>Verifikasi JWT menggunakan JWKS dari SSO Server</li>
+            <li>Mencocokkan user lokal berdasarkan <code>username</code></li>
+            <li>Mengontrol akses berdasarkan role</li>
+            <li>Menyediakan API yang dilindungi</li>
+          </ul>
+        </div>
 
-        <p>2️⃣ Buat middleware <code>VerifyAccessToken.php</code>:</p>
-        <pre
-          class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
-        ><code>&lt;?php
+        <p>1️⃣ <strong>Install package JWT</strong>:</p>
+        <div class="relative">
+          <button
+            onclick="copyToClipboard(this)"
+            class="absolute top-2 right-2 bg-gray-200 px-2 py-1 rounded copy-btn"
+          >
+            <i class="fas fa-copy mr-1"></i>Salin
+          </button>
+          <pre
+            class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
+          ><code>composer require firebase/php-jwt</code></pre>
+        </div>
+
+        <p>2️⃣ <strong>Middleware verifyToken</strong>:</p>
+        <div class="relative">
+          <button
+            onclick="copyToClipboard(this)"
+            class="absolute top-2 right-2 bg-gray-200 px-2 py-1 rounded copy-btn"
+          >
+            <i class="fas fa-copy mr-1"></i>Salin
+          </button>
+          <pre
+            class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
+          ><code>&lt;?php
 
 namespace App\Http\Middleware;
 
 use Closure;
 use Firebase\JWT\JWT;
-use Firebase\JWT\Key;
+use Firebase\JWT\JWK;
 use Illuminate\Http\Request;
+use App\Models\User;
+use Illuminate\Support\Facades\Log;
 
-class VerifyAccessToken
+class verifyToken
 {
     public function handle(Request $request, Closure $next)
     {
-        $auth = $request->header('Authorization');
-        if (!$auth || !str_starts_with($auth, 'Bearer ')) {
-            return response()->json(['error' => 'Unauthorized'], 401);
+        $authHeader = $request->header('Authorization');
+        
+        if (!$authHeader || !str_starts_with($authHeader, 'Bearer ')) {
+            return response()->json([
+                'error' => 'unauthorized',
+                'message' => 'Missing or invalid Authorization header'
+            ], 401);
         }
 
-        $token = substr($auth, 7); // buang "Bearer "
-
+        $token = substr($authHeader, 7);
+        
         try {
+            // Dapatkan public keys dari SSO Server
             $jwks = json_decode(file_get_contents('http://localhost:3000/.well-known/jwks.json'), true);
-            $jwk = $jwks['keys'][0];
-            $publicKey = JWT::parseKeySet(['keys' => [$jwk]]);
+            $keys = JWK::parseKeySet($jwks);
+            
+            // Verifikasi dan decode token
+            $decoded = JWT::decode($token, $keys);
+            
+            // Cari user berdasarkan username
+            $user = User::with('role')
+                ->where('username', $decoded->username)
+                ->first();
+            
+            if (!$user) {
+                return response()->json([
+                    'error' => 'user_not_found',
+                    'message' => 'User not found in local database'
+                ], 404);
+            }
 
-            $decoded = JWT::decode($token, $publicKey);
-            $request->merge(['user_id' => $decoded->user_id, 'username' => $decoded->username]);
+            // Tambahkan user ke request
+            $request->merge([
+                'auth_user' => $user,
+                'auth_role' => $user->role->name,
+                'auth_token' => $decoded
+            ]);
 
         } catch (\Throwable $e) {
-            return response()->json(['error' => 'Token tidak valid'], 401);
+            Log::error('JWT verification failed: ' . $e->getMessage());
+            
+            return response()->json([
+                'error' => 'invalid_token',
+                'message' => 'Token verification failed'
+            ], 401);
         }
 
         return $next($request);
     }
-}
-</code></pre>
+}</code></pre>
+        </div>
 
-        <p>3️⃣ Tambahkan middleware di <code>Kernel.php</code>:</p>
-        <pre
-          class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
-        ><code>'auth.sso' => \App\Http\Middleware\VerifyAccessToken::class,</code></pre>
+        <p>3️⃣ <strong>Middleware CheckRole</strong>:</p>
+        <div class="relative">
+          <button
+            onclick="copyToClipboard(this)"
+            class="absolute top-2 right-2 bg-gray-200 px-2 py-1 rounded copy-btn"
+          >
+            <i class="fas fa-copy mr-1"></i>Salin
+          </button>
+          <pre
+            class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
+          ><code>&lt;?php
 
-        <p>4️⃣ Gunakan route yang dilindungi oleh token:</p>
-        <pre
-          class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
-        ><code>Route::middleware('auth.sso')->get('/api/profile', function (Request $request) {
-    return response()->json([
-        'user_id' => $request->user_id,
-        'username' => $request->username,
-    ]);
-});
-</code></pre>
+namespace App\Http\Middleware;
 
-        <p>
-          ✅ Sekarang setiap request dari React akan diverifikasi menggunakan
-          kunci publik dari SSO Server.
-        </p>
+use Closure;
+
+class CheckRole
+{
+    public function handle($request, Closure $next, $role)
+    {
+        if ($request->auth_role !== $role) {
+            return response()->json([
+                'error' => 'forbidden',
+                'message' => 'Insufficient permissions'
+            ], 403);
+        }
+        
+        return $next($request);
+    }
+}</code></pre>
+        </div>
+
+        <p>4️⃣ <strong>Daftarkan middleware</strong> (Laravel 11):</p>
+        <div class="relative">
+          <button
+            onclick="copyToClipboard(this)"
+            class="absolute top-2 right-2 bg-gray-200 px-2 py-1 rounded copy-btn"
+          >
+            <i class="fas fa-copy mr-1"></i>Salin
+          </button>
+          <pre
+            class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
+          ><code>// bootstrap/app.php
+
+$app->routeMiddleware([
+    'auth.sso' => \App\Http\Middleware\verifyToken::class,
+    'role' => \App\Http\Middleware\CheckRole::class,
+]);</code></pre>
+        </div>
+
+        <p>5️⃣ <strong>Implementasi route</strong>:</p>
+        <div class="relative">
+          <button
+            onclick="copyToClipboard(this)"
+            class="absolute top-2 right-2 bg-gray-200 px-2 py-1 rounded copy-btn"
+          >
+            <i class="fas fa-copy mr-1"></i>Salin
+          </button>
+          <pre
+            class="bg-white rounded shadow p-4 text-sm overflow-x-auto"
+          ><code>use Illuminate\Support\Facades\Route;
+use Illuminate\Http\Request;
+
+// Grup route yang membutuhkan autentikasi
+Route::middleware(['auth.sso'])->group(function () {
+    
+    // Endpoint profile untuk semua user terautentikasi
+    Route::get('/api/profile', function (Request $request) {
+        return response()->json([
+            'user' => [
+                'id' => $request->auth_user->id,
+                'username' => $request->auth_user->username,
+                'email' => $request->auth_user->email
+            ],
+            'role' => $request->auth_role,
+            'token_exp' => $request->auth_token->exp
+        ]);
+    });
+
+    // Endpoint khusus admin
+    Route::prefix('/api/admin')->middleware('role:admin')->group(function () {
+        Route::get('/dashboard', function () {
+            return response()->json(['message' => 'Admin dashboard data']);
+        });
+        
+        Route::get('/users', 'AdminController@getUsers');
+    });
+
+    // Endpoint khusus user
+    Route::prefix('/api/user')->middleware('role:user')->group(function () {
+        Route::get('/profile', 'UserController@getProfile');
+    });
+});</code></pre>
+        </div>
+
+        <div class="bg-yellow-50 p-4 rounded-lg info-box border-l-yellow-500">
+          <p class="font-semibold text-yellow-800">🗂️ Struktur Database:</p>
+          <pre class="mt-2 text-sm bg-white p-3 rounded"><code>users
+- id
+- username (unik, harus sama dengan di SSO Server)
+- email
+- password (optional, tergantung implementasi)
+- role_id
+- created_at
+- updated_at
+
+roles
+- id
+- name (admin, user, manager, etc.)
+- permissions (json)
+- created_at
+- updated_at
+
+user_clients (optional, untuk multi-client)
+- user_id
+- client_id
+- created_at</code></pre>
+        </div>
+
+        <div class="bg-purple-50 p-4 rounded-lg info-box border-l-purple-500">
+          <p class="font-semibold text-purple-800">🔧 Contoh Payload JWT:</p>
+          <pre class="mt-2 text-sm bg-white p-3 rounded"><code>{
+  "iss": "http://localhost:3000",
+  "sub": "12345",
+  "username": "john_doe",
+  "email": "john@example.com",
+  "client_id": "app1",
+  "scope": "profile email",
+  "iat": 1620000000,
+  "exp": 1620003600,
+  "jti": "abc123"
+}</code></pre>
+        </div>
       </div>
 
       <div class="text-center text-sm text-gray-500 mt-10">
-        © 2025 Panduan SSO — React + Laravel
+        © 2025 Panduan SSO — React + Laravel |
+        <a href="#" class="text-blue-600 hover:underline">Terms of Service</a> |
+        <a href="#" class="text-blue-600 hover:underline">Privacy Policy</a>
       </div>
     </div>
+
+    <script>
+      function copyToClipboard(button) {
+        const codeBlock = button.parentElement.querySelector("code");
+        const text = codeBlock.innerText;
+
+        navigator.clipboard.writeText(text).then(() => {
+          const originalText = button.innerHTML;
+          button.innerHTML = '<i class="fas fa-check mr-1"></i>Tersalin!';
+
+          setTimeout(() => {
+            button.innerHTML = originalText;
+          }, 2000);
+        });
+      }
+    </script>
   </body>
 </html>
